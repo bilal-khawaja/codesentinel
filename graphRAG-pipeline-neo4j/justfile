@@ -1,0 +1,18 @@
+set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
+
+# Pipeline is a library (no entrypoint); "running" it = starting Neo4j (APOC + GDS) and syncing deps.
+run:
+    uv sync
+    docker compose -f pipeline/docker-compose.yml up -d
+
+# --- Tests (add recipes here once test_pipeline/ has tests again) ---
+# test:
+#     uv run pytest pipeline/test_pipeline -s
+# test-code:
+#     uv run pytest pipeline/test_pipeline/code
+# eval:
+#     uv run pytest pipeline/model_evaluation -s
+
+# --- Migrations (none yet: Neo4j schema/indexes are created at ingest time; add a migrations runner here if needed) ---
+# migrate:
+#     uv run python -m pipeline.migrations.run

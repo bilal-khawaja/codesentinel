@@ -21,6 +21,15 @@ Public API:
     Neo4jCredentials(uri, userName, password, database)
         Connection details shared by ingest functions and retrieve().
 """
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Load pipeline/.env (then a .env in the working directory) before any module reads os.environ.
+# override=False: variables already exported in the shell win.
+load_dotenv(Path(__file__).parent / ".env", override=False)
+load_dotenv(override=False)
+
 from .graphdb.db import Neo4jCredentials
 from .ingestion.ingest import ingest, ingest_from_url, ingest_from_wikipedia
 from .retrievals.retrieve import retrieve

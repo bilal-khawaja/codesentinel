@@ -301,7 +301,13 @@ class OpenAIEmbeddingFunction:
 
     def __init__(self, model: str, api_key: Optional[str] = None):
         self.model = model
-        self._client = OpenAI(api_key=api_key) if api_key else OpenAI()
+        api_key = api_key or get_value_from_env("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError(
+                "OPENAI_API_KEY is not set. Add it to pipeline/.env (or export it) "
+                "so embeddings can be generated."
+            )
+        self._client = OpenAI(api_key=api_key)
 
     def embed_query(self, text: str) -> List[float]:
         text = text.replace("\n", " ") if text else " "

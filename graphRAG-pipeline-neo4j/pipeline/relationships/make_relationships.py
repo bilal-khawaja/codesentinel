@@ -36,7 +36,7 @@ def merge_relationship_between_chunk_and_entites(graph, graph_documents_chunk_ch
         unwind_query = """
                     UNWIND $batch_data AS data
                     MATCH (c:Chunk {id: data.chunk_id})
-                    CALL apoc.merge.node([data.node_type], {id: data.node_id}) YIELD node AS n
+                    MATCH (n:`__Entity__` {id: data.node_id})
                     MERGE (c)-[:HAS_ENTITY]->(n)
                 """
         execute_graph_query(graph, unwind_query, params={"batch_data": batch_data})

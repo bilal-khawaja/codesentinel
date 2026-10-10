@@ -58,13 +58,13 @@ CALL {
 RETURN count(*)
 """
 CREATE_COMMUNITY_RANKS = """
-MATCH (c:__Community__)<-[:IN_COMMUNITY*]-(:!Chunk&!Document&!__Community__)<-[HAS_ENTITY]-(:Chunk)<-[]-(d:Document)
+MATCH (c:__Community__)<-[:IN_COMMUNITY*]-(:__Entity__)<-[:HAS_ENTITY]-(:Chunk)-[:PART_OF]->(d:Document)
 WITH c, count(distinct d) AS rank
 SET c.community_rank = rank;
 """
 
 CREATE_PARENT_COMMUNITY_RANKS = """
-MATCH (c:__Community__)<-[:PARENT_COMMUNITY*]-(:__Community__)<-[:IN_COMMUNITY*]-(:!Chunk&!Document&!__Community__)<-[HAS_ENTITY]-(:Chunk)<-[]-(d:Document)
+MATCH (c:__Community__)<-[:PARENT_COMMUNITY*]-(:__Community__)<-[:IN_COMMUNITY*]-(:__Entity__)<-[:HAS_ENTITY]-(:Chunk)-[:PART_OF]->(d:Document)
 WITH c, count(distinct d) AS rank
 SET c.community_rank = rank;
 """
@@ -91,7 +91,7 @@ CALL apoc.path.subgraphAll(nodes[0], {
 YIELD relationships
 RETURN c.id AS communityId,
        [n in nodes | {id: n.id, description: n.description, type: [el in labels(n) WHERE el <> '__Entity__'][0]}] AS nodes,
-       [r in relationships | {start: startNode(r).id, type: type(r), end: endNode(r).id}] AS rels
+       [r in relationships | {start: startNode(r).id, type: coalesce(r.type, type(r)), end: endNode(r).id, description: r.description}] AS rels
 """
 
 GET_PARENT_COMMUNITY_INFO = """

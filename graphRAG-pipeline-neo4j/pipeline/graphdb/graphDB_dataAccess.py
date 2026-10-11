@@ -108,6 +108,8 @@ class graphDBdataAccess:
         """
         try:
             self.execute_query(query, {"fn": file_name})
+            # findings point at the entities just removed, so they go with them
+            self.execute_query("MATCH (f:Finding {file: $fn}) DETACH DELETE f", {"fn": file_name})
             logging.info(f"Successfully removed stale content for document '{file_name}'.")
         except Exception as e:
             logging.error(f"Error deleting stale content for file '{file_name}': {e}")

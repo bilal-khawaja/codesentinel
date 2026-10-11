@@ -2,6 +2,7 @@ import os
 import json
 import logging
 import time
+import threading
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -69,13 +70,24 @@ class Neo4jGraphConnection:
         self._driver.close()
 
 
+_connections: Dict[tuple, Neo4jGraphConnection] = {}
+_connections_lock = threading.Lock()
+
+
 def create_graph_database_connection(credentials: Neo4jCredentials) -> Neo4jGraphConnection:
-    return Neo4jGraphConnection(
-        uri=credentials.uri,
-        username=credentials.userName,
-        password=credentials.password,
-        database=credentials.database,
-    )
+    """One shared connection (driver + pool) per set of credentials. The neo4j driver is
+    thread-safe and built to be long-lived; opening a new one per call, as this used to,
+    costs a fresh connection pool for every file."""
+    key = (credentials.uri, credentials.userName, credentials.password, credentials.database)
+    with _connections_lock:
+        if key not in _connections:
+            _connections[key] = Neo4jGraphConnection(
+                uri=credentials.uri,
+                username=credentials.userName,
+                password=credentials.password,
+                database=credentials.database,
+            )
+        return _connections[key]
 
 
 def save_graphDocuments_in_neo4j(

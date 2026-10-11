@@ -107,7 +107,11 @@ def create_relation_between_chunks(graph, file_name: str, chunks: List[Document]
             "content_offset": offset,
             "page_number": chunk.metadata.get('page_number'),
             "start_time": chunk.metadata.get('start_timestamp'),
-            "end_time": chunk.metadata.get('end_timestamp')
+            "end_time": chunk.metadata.get('end_timestamp'),
+            "start_line": chunk.metadata.get('start_line'),
+            "end_line": chunk.metadata.get('end_line'),
+            "language": chunk.metadata.get('language'),
+            "symbol": chunk.metadata.get('symbol')
         }
 
         batch_data.append(chunk_data)
@@ -137,7 +141,11 @@ def create_relation_between_chunks(graph, file_name: str, chunks: List[Document]
         c.embedding = data.embedding,
         c.page_number = data.page_number,
         c.start_time = data.start_time,
-        c.end_time = data.end_time
+        c.end_time = data.end_time,
+        c.start_line = data.start_line,
+        c.end_line = data.end_line,
+        c.language = data.language,
+        c.symbol = data.symbol
     MERGE (c)-[:PART_OF]->(d)
     """
     execute_graph_query(graph, query_create_chunks, params={"batch_data": batch_data})

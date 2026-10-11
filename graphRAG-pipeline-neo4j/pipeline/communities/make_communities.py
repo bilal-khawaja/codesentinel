@@ -3,9 +3,10 @@ from graphdatascience import GraphDataScience
 
 from ..llm_setup.llm import get_llm
 from ..graphdb.db import get_value_from_env, load_embedding_model
+from ..shared.constants import CODE_COMMUNITY_SYSTEM_TEMPLATE, CODE_COMMUNITY_TEMPLATE
 
 COMMUNITY_PROJECTION_NAME = "communities"
-NODE_PROJECTION = "!Chunk&!Document&!__Community__"
+NODE_PROJECTION = "!Chunk&!Document&!__Community__&!Finding"
 NODE_PROJECTION_ENTITY = "__Entity__"
 MAX_WORKERS = 3
 MAX_COMMUNITY_LEVELS = 3
@@ -90,7 +91,7 @@ CALL apoc.path.subgraphAll(nodes[0], {
 })
 YIELD relationships
 RETURN c.id AS communityId,
-       [n in nodes | {id: n.id, description: n.description, type: [el in labels(n) WHERE el <> '__Entity__'][0]}] AS nodes,
+       [n in nodes | {id: n.id, description: n.description, type: coalesce(n.type, [el in labels(n) WHERE el <> '__Entity__'][0]), sourceType: n.sourceType}] AS nodes,
        [r in relationships | {start: startNode(r).id, type: coalesce(r.type, type(r)), end: endNode(r).id, description: r.description}] AS rels
 """
 
@@ -261,8 +262,11 @@ class _CommunityChain:
         return self.llm.complete(self.system_template, human_prompt)
 
 
-def get_community_chain(llm, is_parent=False, community_template=COMMUNITY_TEMPLATE, system_template=COMMUNITY_SYSTEM_TEMPLATE):
+def get_community_chain(llm, is_parent=False, is_code=False, community_template=COMMUNITY_TEMPLATE, system_template=COMMUNITY_SYSTEM_TEMPLATE):
     try:
+        if is_code:
+            community_template = CODE_COMMUNITY_TEMPLATE
+            system_template = CODE_COMMUNITY_SYSTEM_TEMPLATE
         if is_parent:
             community_template = PARENT_COMMUNITY_TEMPLATE
             system_template = PARENT_COMMUNITY_SYSTEM_TEMPLATE
@@ -321,12 +325,14 @@ def create_community_summaries(gds, model, email, uri):
         community_info_list = gds.run_cypher(GET_COMMUNITY_INFO)
         llm, model_name, callback_handler = get_llm(model)
         community_chain = get_community_chain(llm)
+        code_community_chain = get_community_chain(llm, is_code=True)
 
         summaries = []
         communities = community_info_list.to_dict(orient="records")
         logging.info("Creating summaries for %d level-0 communities.", len(communities))
         for completed, community in enumerate(communities, 1):
-            result = process_community_info(community, community_chain)
+            is_code = any(node.get("sourceType") == "code" for node in community["nodes"])
+            result = process_community_info(community, code_community_chain if is_code else community_chain)
             if result:
                 summaries.append(result)
             else:

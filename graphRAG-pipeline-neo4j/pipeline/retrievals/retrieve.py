@@ -166,3 +166,59 @@ def community_retriever(
             "query_vector": query_vector,
         },
     )
+
+CODE_ENTITY_TYPES = ["Module", "Class", "Function", "Variable"]
+SYMBOL_MATCH = "(e.id = $symbol OR e.qualname = $symbol OR e.name = $symbol)"
+MAX_NEIGHBOR_DEPTH = 5
+
+FIND_SYMBOL_QUERY = f"""
+MATCH (e:__Entity__)
+WHERE e.type IN $types AND {SYMBOL_MATCH}
+OPTIONAL MATCH (c:Chunk)-[:HAS_ENTITY]->(e)
+WITH e, c ORDER BY c.position
+RETURN e.id AS id, e.type AS type, e.file AS file, e.start_line AS start_line, e.end_line AS end_line,
+       e.signature AS signature, e.summary AS summary, collect(c.text) AS code
+LIMIT $limit
+"""
+
+NEIGHBORS_QUERY = """
+MATCH (e:__Entity__)
+WHERE {symbol_match}
+MATCH path = {pattern}
+WHERE ALL(r IN relationships(path) WHERE r.type IN $rel_types)
+RETURN DISTINCT n.id AS id, n.type AS type, n.file AS file, n.start_line AS start_line,
+       n.signature AS signature, [r IN relationships(path) | r.type] AS via, length(path) AS depth
+ORDER BY depth, id
+LIMIT $limit
+"""
+
+NEIGHBOR_PATTERNS = {
+    "out": "(e)-[:RELATED*1..{depth}]->(n)",
+    "in": "(e)<-[:RELATED*1..{depth}]-(n)",
+    "both": "(e)-[:RELATED*1..{depth}]-(n)",
+}
+
+
+def symbol_lookup(name: str, limit: int = 5):
+    """Find code entities by id ("a.py::Class.method"), qualified name ("Class.method") or
+    bare name, and return their location, signature, summary and source chunk text."""
+    graph = create_graph_database_connection(get_neo4j_credentials())
+    return graph.query(FIND_SYMBOL_QUERY, {"symbol": name, "types": CODE_ENTITY_TYPES, "limit": limit})
+
+
+def symbol_neighbors(symbol: str, rel_types: list[str] | None = None, direction: str = "out",
+                     depth: int = 1, limit: int = 50):
+    """Walk the code graph from a symbol. rel_types: DEFINES, IMPORTS, INHERITS, CALLS, USES.
+    direction "out" = what the symbol calls/inherits; "in" = who calls/inherits/defines it."""
+    if direction not in NEIGHBOR_PATTERNS:
+        raise ValueError(f"direction must be one of {list(NEIGHBOR_PATTERNS)}")
+    depth = max(1, min(depth, MAX_NEIGHBOR_DEPTH))
+    query = NEIGHBORS_QUERY.format(
+        symbol_match=SYMBOL_MATCH, pattern=NEIGHBOR_PATTERNS[direction].format(depth=depth)
+    )
+    graph = create_graph_database_connection(get_neo4j_credentials())
+    return graph.query(query, {
+        "symbol": symbol,
+        "rel_types": rel_types or ["DEFINES", "IMPORTS", "INHERITS", "CALLS", "USES"],
+        "limit": limit,
+    })

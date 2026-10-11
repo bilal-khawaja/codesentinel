@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import re
+import time
 from typing import List, Optional
 
 import httpx2
@@ -13,6 +14,7 @@ from pydantic_ai.providers.openai import OpenAIProvider
 from ..graphdb.db import UniversalTokenUsageHandler, get_value_from_env, GraphDocument, GraphNode, GraphRelationship, GraphSource
 from ..document_sources.document import Document
 from ..shared.constants import ADDITIONAL_INSTRUCTIONS
+from .metrics import LLMMetrics
 
 
 class LLMGraphBuilderException(Exception):
@@ -83,30 +85,45 @@ class LLMHandle:
         self.model = model
         self.model_name = model_name
         self.usage_tracker = usage_tracker
+        self.metrics = LLMMetrics(model_name)
 
     # Added defensive handling so token recording failures do not break execution flows
-    def _record(self, result):
+    def _record(self, result, label: str, started: float):
+        usage = None
         try:
-            if hasattr(result, "usage") and callable(result.usage):
-                self.usage_tracker.add(result.usage())
+            if hasattr(result, "usage"):
+                # a property in current pydantic-ai, a method in older versions
+                usage = result.usage() if callable(result.usage) else result.usage
+                self.usage_tracker.add(usage)
         except Exception as usage_err:
             logging.error(f"Error while reporting token usage: {usage_err}")
+        self.metrics.record(label, started, time.perf_counter(), usage)
 
-    def complete(self, system_prompt: str, user_prompt: str) -> str:
+    def complete(self, system_prompt: str, user_prompt: str, label: str = "complete") -> str:
         agent = Agent(self.model, output_type=str, system_prompt=system_prompt)
+        started = time.perf_counter()
         result = agent.run_sync(user_prompt)
-        self._record(result)
+        self._record(result, label, started)
         return result.output
 
-    async def acomplete(self, system_prompt: str, user_prompt: str) -> str:
+    async def acomplete(self, system_prompt: str, user_prompt: str, label: str = "complete") -> str:
         agent = Agent(self.model, output_type=str, system_prompt=system_prompt)
+        started = time.perf_counter()
         result = await agent.run(user_prompt)
-        self._record(result)
+        self._record(result, label, started)
         return result.output
-    
+
+    def run_agent(self, agent, prompt: str, label: str = "agent"):
+        """Run an agent from create_query_agent() and record its time, tokens and cost
+        (all model calls and tool rounds of the run are counted together)."""
+        started = time.perf_counter()
+        result = agent.run_sync(prompt)
+        self._record(result, label, started)
+        return result
+
     def create_query_agent(self):
 
-        from ..retrievals.retrieve import community_retriever, data_retriever
+        from ..retrievals.retrieve import community_retriever, data_retriever, symbol_lookup, symbol_neighbors
 
         agent = Agent(
             self.model,
@@ -120,6 +137,12 @@ class LLMHandle:
 
             Use retrieve_data when you need the actual data
             required to answer the question.
+
+            For questions about source code, use find_symbol to get a function or class
+            (its code, signature and location), and get_neighbors for structure:
+            callers (direction "in", rel_types ["CALLS"]), callees (direction "out"),
+            subclasses (direction "in", ["INHERITS"]), users of a variable (direction "in", ["USES"])
+            and contents of a class or module (["DEFINES"]).
 
             Do not invent information that was not returned by the tools.
             """
@@ -181,12 +204,34 @@ class LLMHandle:
 
                 return str(result)
 
+        @agent.tool_plain
+        def find_symbol(name: str) -> str:
+            from ..shared.tracing import trace_tool
+
+            with trace_tool("find_symbol", name=name):
+                result = symbol_lookup(name)
+                return str(result) if result else "No symbol found."
+
+        @agent.tool_plain
+        def get_neighbors(
+            symbol: str,
+            rel_types: list[str] | None = None,
+            direction: str = "out",
+            depth: int = 1,
+        ) -> str:
+            from ..shared.tracing import trace_tool
+
+            with trace_tool("get_neighbors", symbol=symbol, rel_types=rel_types, direction=direction, depth=depth):
+                result = symbol_neighbors(symbol, rel_types, direction, depth)
+                return str(result) if result else "No related symbols found."
+
         return agent
 
-    async def astructured(self, system_prompt: str, user_prompt: str, output_type):
+    async def astructured(self, system_prompt: str, user_prompt: str, output_type, label: str = "structured"):
         agent = Agent(self.model, output_type=output_type, system_prompt=system_prompt)
+        started = time.perf_counter()
         result = await agent.run(user_prompt)
-        self._record(result)
+        self._record(result, label, started)
         return result.output
 
 

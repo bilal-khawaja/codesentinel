@@ -5,11 +5,37 @@ run:
     uv sync
     docker compose -f pipeline/docker-compose.yml up -d
 
-# --- Tests (add recipes here once test_pipeline/ has tests again) ---
-# test:
-#     uv run pytest pipeline/test_pipeline -s
-# test-code:
-#     uv run pytest pipeline/test_pipeline/code
+# --- Tests (offline: no Neo4j, no API key) ---
+
+# All code tests. Pass extra pytest args after the recipe, e.g. `just test-code -x`.
+test-code *args:
+    uv run pytest pipeline/test_pipeline/code {{args}}
+
+# One recipe per test file. Extra pytest args work too, e.g. `just test-rules -k secret`.
+
+# Parsing, chunking, edges, cross-file resolution.
+test-parsing *args:
+    uv run pytest pipeline/test_pipeline/code/test_code_parsing.py {{args}}
+
+# The 18 rule checks: injection, secrets, syntax errors, and so on.
+test-rules *args:
+    uv run pytest pipeline/test_pipeline/code/test_code_analysis_rules.py {{args}}
+
+# LLM review: prompt, verification, merge, file analysis (scripted fake LLM).
+test-review *args:
+    uv run pytest pipeline/test_pipeline/code/test_code_review.py {{args}}
+
+# Saving findings to Neo4j (recording fake graph) and keeping them out of other queries.
+test-store *args:
+    uv run pytest pipeline/test_pipeline/code/test_findings_store.py {{args}}
+
+# LLM time, tokens and cost tracking.
+test-metrics *args:
+    uv run pytest pipeline/test_pipeline/code/test_llm_metrics.py {{args}}
+
+# Any test file by name, e.g. `just test-file test_code_review.py -k dismissed`.
+test-file file *args:
+    uv run pytest pipeline/test_pipeline/code/{{file}} {{args}}
 # eval:
 #     uv run pytest pipeline/model_evaluation -s
 

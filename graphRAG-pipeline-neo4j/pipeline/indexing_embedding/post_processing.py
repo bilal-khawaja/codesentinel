@@ -10,7 +10,7 @@ from ..graphdb.graphDB_dataAccess import graphDBdataAccess
 
 # Constants for Full-Text Indexes
 LABELS_QUERY = "CALL db.labels()"
-FILTER_LABELS = ["Chunk", "Document", "__Community__"]
+FILTER_LABELS = ["Chunk", "Document", "__Community__", "Finding"]
 FULL_TEXT_QUERY = "CREATE FULLTEXT INDEX entities FOR (n{labels_str}) ON EACH [n.id, n.description];"
 HYBRID_SEARCH_FULL_TEXT_QUERY = "CREATE FULLTEXT INDEX keyword FOR (n:Chunk) ON EACH [n.text]"
 COMMUNITY_INDEX_FULL_TEXT_QUERY = "CREATE FULLTEXT INDEX community_keyword FOR (n:`__Community__`) ON EACH [n.summary]"
@@ -19,6 +19,7 @@ COMMUNITY_INDEX_FULL_TEXT_QUERY = "CREATE FULLTEXT INDEX community_keyword FOR (
 CHUNK_VECTOR_INDEX_NAME = "vector"
 ENTITY_VECTOR_INDEX_NAME = "entity_vector"
 COMMUNITY_VECTOR_INDEX_NAME = "community_vector"
+FINDING_VECTOR_INDEX_NAME = "finding_vector"
 VECTOR_EMBEDDING_DEFAULT_DIMENSION = 384
 
 CREATE_VECTOR_INDEX_QUERY = """
@@ -40,7 +41,8 @@ FULLTEXT_INDEXES = [
 VECTOR_INDEXES = [
     {"name": CHUNK_VECTOR_INDEX_NAME, "label": "Chunk", "property": "embedding"},
     {"name": ENTITY_VECTOR_INDEX_NAME, "label": "__Entity__", "property": "embedding"},
-    {'name': COMMUNITY_VECTOR_INDEX_NAME, 'label': '__Community__', 'property': 'embedding'}
+    {'name': COMMUNITY_VECTOR_INDEX_NAME, 'label': '__Community__', 'property': 'embedding'},
+    {"name": FINDING_VECTOR_INDEX_NAME, "label": "Finding", "property": "embedding"},
 ]
 
 
@@ -131,7 +133,7 @@ def create_entity_embedding(graph, embedding_provider, embedding_model):
 def fetch_entities_for_embedding(graph):
     query = """
                 MATCH (e)
-                WHERE NOT (e:Chunk OR e:Document OR e:`__Community__`) AND e.embedding IS NULL AND e.id IS NOT NULL
+                WHERE NOT (e:Chunk OR e:Document OR e:`__Community__` OR e:Finding) AND e.embedding IS NULL AND e.id IS NOT NULL
                 RETURN elementId(e) AS elementId, e.id + " " + coalesce(e.description, "") AS text
                 """
     result = execute_graph_query(graph, query)

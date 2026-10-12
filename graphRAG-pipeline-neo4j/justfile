@@ -21,9 +21,9 @@ test-parsing *args:
 test-rules *args:
     uv run pytest pipeline/test_pipeline/code/test_code_analysis_rules.py {{args}}
 
-# LLM review: prompt, verification, merge, file analysis (scripted fake LLM).
+# LLM review on samples/ (vulnerable_app.py, clean_app.py) with the real model; -s prints the LLM metrics. About $0.03, skipped without a model.
 test-review *args:
-    uv run pytest pipeline/test_pipeline/code/test_code_review.py {{args}}
+    uv run pytest pipeline/test_pipeline/code/test_code_review.py -s {{args}}
 
 # Saving findings to Neo4j (recording fake graph) and keeping them out of other queries.
 test-store *args:
@@ -36,6 +36,11 @@ test-metrics *args:
 # Any test file by name, e.g. `just test-file test_code_review.py -k dismissed`.
 test-file file *args:
     uv run pytest pipeline/test_pipeline/code/{{file}} {{args}}
+# Accuracy of the vulnerability/bug detector on two sample files, real LLM (costs ~$0.01 per run).
+# Extra args: --runs 3 (spread over runs), --rules-only (no LLM), --risky-only.
+eval-code *args:
+    uv run python -m pipeline.code_analysis.evaluation {{args}}
+
 # eval:
 #     uv run pytest pipeline/model_evaluation -s
 

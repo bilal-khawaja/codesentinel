@@ -24,6 +24,7 @@ class SymbolContext:
     callers: List[str] = field(default_factory=list)
     callees: List[str] = field(default_factory=list)
     entry_point: bool = False
+    known: bool = False   # True when read from the graph; False = the file was analyzed on its own
 
 
 @dataclass
@@ -36,6 +37,8 @@ class ReviewUnit:
     truncated: bool = False
     calls: List[str] = field(default_factory=list)
     decorated: bool = False
+    imports: List[str] = field(default_factory=list)   # names the file imports ("time", "Path", ...)
+    defined: List[str] = field(default_factory=list)   # top-level functions, classes and variables of the file
 
     @property
     def line_numbers(self) -> set:
@@ -56,6 +59,8 @@ def build_units(source: str, info: CodeInfo, file_name: str, summaries: Optional
     summaries = summaries or {}
     all_lines = source.splitlines()
     by_qualname = {s.qualname: s for s in info.symbols}
+    imports = imported_names(info)
+    defined = sorted({s.name for s in info.symbols if s.parent is None})
     units = []
     for symbol in info.symbols:
         if symbol.kind != "Function" or _inside_function(symbol, by_qualname):
@@ -66,6 +71,7 @@ def build_units(source: str, info: CodeInfo, file_name: str, summaries: Optional
             summary=symbol.docstring or summaries.get(symbol.qualname, ""),
             lines=numbered[:MAX_REVIEW_LINES], truncated=len(numbered) > MAX_REVIEW_LINES,
             calls=symbol.calls, decorated=all_lines[symbol.start_line - 1].lstrip().startswith("@"),
+            imports=imports, defined=defined,
         ))
 
     top_level = [(s.start_line, s.end_line) for s in info.symbols if s.parent is None and s.kind != "Variable"]
@@ -74,9 +80,20 @@ def build_units(source: str, info: CodeInfo, file_name: str, summaries: Optional
         units.append(ReviewUnit(
             file=file_name, symbol=None, signature="module-level code of " + file_name,
             summary=info.module_docstring, lines=module_lines[:MAX_REVIEW_LINES],
-            truncated=len(module_lines) > MAX_REVIEW_LINES,
+            truncated=len(module_lines) > MAX_REVIEW_LINES, imports=imports, defined=defined,
         ))
     return units
+
+
+def imported_names(info: CodeInfo) -> List[str]:
+    """Every name the file's imports make available: alias, module (and its first part), imported name."""
+    names = set()
+    for entry in info.imports:
+        alias, module, name = (entry.split("|") + ["", "", ""])[:3]
+        for n in (alias, module, module.split(".")[0], name):
+            if n and n != "*":
+                names.add(n)
+    return sorted(names)
 
 
 def _inside_function(symbol: Symbol, by_qualname: Dict[str, Symbol]) -> bool:
@@ -133,7 +150,7 @@ def fetch_symbol_context(graph, entity_id: str, decorated: bool = False) -> Symb
     params = {"id": entity_id, "limit": CONTEXT_LIMIT}
     callees = [_describe(row) for row in graph.query(CALLEES_QUERY, params)]
     callers = [_describe(row) for row in graph.query(CALLERS_QUERY, params)]
-    return SymbolContext(callers=callers, callees=callees, entry_point=decorated or not callers)
+    return SymbolContext(callers=callers, callees=callees, entry_point=decorated or not callers, known=True)
 
 
 def _describe(row: dict) -> str:

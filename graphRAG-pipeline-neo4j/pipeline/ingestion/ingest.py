@@ -29,6 +29,9 @@ from ..code_parsing.chunker import chunk_code
 from ..code_parsing.graph_builder import build_graph_documents
 from ..code_parsing.linker import link_code_references
 from ..code_parsing.summarizer import build_summary_inputs, summarize_symbols
+from ..code_analysis.analyzer import analyze_file
+from ..code_analysis.context import ReviewUnit, SymbolContext, build_units, fetch_symbol_context
+from ..code_analysis.store import save_analysis
 
 
 def _hash_pages(pages) -> str:
@@ -75,12 +78,19 @@ async def ingest(
     rebuild_communities: bool = True,
     summarize_code: bool = True,
     root_dir: str = None,
+    analyze: bool = True,
+    review_model: str = None,
+    review_all: bool = True,
 ) -> dict:
     """Load a local file, extract a graph via LLM, and write it into Neo4j.
     Source code files (see code_parsing/language_spec.py) skip the LLM extraction and are
     parsed with tree-sitter instead; summarize_code adds a one-line LLM summary to symbols
     that have no docstring. root_dir makes the stored file name root-relative ("pkg/a.py"),
     which cross-file linking of calls and imports needs. If this exact content was already ingested, this is a no-op.
+    analyze=True (code only) then scans the file for vulnerabilities and bugs after linking and stores the findings;
+    review_model picks the reviewing LLM (default: model), review_all=False limits LLM review to risky units.
+    A code file that was ingested but never analyzed is analyzed even though ingest itself is skipped.
+    An analysis failure is reported in the result's "analysis" block and never fails the ingest.
     If the file exists but its content changed, the old chunks/entities are replaced."""
     file_name = source_path.split("/")[-1].split("\\")[-1]
     if root_dir:  # root-relative name keeps same-named files in different folders apart
@@ -92,6 +102,7 @@ async def ingest(
         return await _ingest_code(
             source_path, file_name, spec, content_hash, model, credentials,
             embedding_provider, embedding_model, rebuild_communities, summarize_code,
+            analyze, review_model or model, review_all,
         )
 
     file_name, pages, _ = await asyncio.to_thread(get_documents_from_file_by_path, source_path, file_name)
@@ -171,13 +182,22 @@ async def _ingest_code(
     embedding_model,
     rebuild_communities,
     summarize_code,
+    analyze=False,
+    review_model=None,
+    review_all=True,
 ) -> dict:
     """Source code path: tree-sitter chunks and graph instead of text cleaning,
     token chunking and LLM entity extraction. Whitespace is kept as is."""
     # Cheapest check first: an unchanged file is skipped before it is read, parsed or chunked.
     status = await _resolve_existing_document_async(file_name, content_hash, credentials)
     if status == "unchanged":
-        return _skipped_result(file_name)
+        result = _skipped_result(file_name)
+        if analyze:
+            result["analysis"] = await _analyze_if_stale(
+                source_path, file_name, spec, content_hash, review_model, review_all,
+                credentials, embedding_provider, embedding_model,
+            )
+        return result
 
     with open(source_path, encoding="utf-8", errors="replace") as f:
         source = f.read()
@@ -211,7 +231,87 @@ async def _ingest_code(
         link_code=True,
     )
     result["llmMetrics"] = llm.metrics.summary() if llm else None
+    if analyze:
+        # after _finalize: the ingest is already stored, and the link step has run so call context exists
+        result["analysis"] = await _run_analysis(
+            graph, source, file_name, info, content_hash, review_model, review_all,
+            embedding_provider, embedding_model,
+        )
     return result
+
+
+async def _analyze_if_stale(
+    source_path, file_name, spec, content_hash, review_model, review_all,
+    credentials, embedding_provider, embedding_model,
+) -> dict:
+    """Unchanged file: analyze it only if it was never analyzed (or analyzed at other content)."""
+    try:
+        graph = create_graph_database_connection(credentials)
+        rows = await asyncio.to_thread(
+            graph.query, "MATCH (m:__Entity__ {id: $id, type: 'Module'}) RETURN m.analyzed_hash AS h", {"id": file_name}
+        )
+        if not rows:
+            return {"status": "skipped", "reason": "no_module_node"}
+        if rows[0]["h"] == content_hash:
+            return {"status": "skipped", "reason": "already_analyzed"}
+        with open(source_path, encoding="utf-8", errors="replace") as f:
+            source = f.read()
+        info = extract(source, spec)
+    except Exception as e:
+        logging.error(f"Analysis setup failed for {file_name}: {e}")
+        return {"status": "failed", "error": str(e)}
+    return await _run_analysis(
+        graph, source, file_name, info, content_hash, review_model, review_all, embedding_provider, embedding_model,
+    )
+
+
+async def _run_analysis(
+    graph, source, file_name, info, content_hash, review_model, review_all, embedding_provider, embedding_model,
+) -> dict:
+    """Rule scan + LLM review + store. Never raises: a failure comes back as status "failed"."""
+    try:
+        review_llm, _, _ = get_llm(review_model)
+        units = build_units(source, info, file_name)
+        # graph lookups are blocking: fetch every unit's context in a worker thread, once
+        contexts = await asyncio.to_thread(_fetch_contexts, graph, units)
+        report = await analyze_file(
+            review_llm, source, file_name, info,
+            get_context=lambda unit: contexts.get(_unit_key(unit), SymbolContext()),
+            review_all=review_all,
+        )
+        saved = await asyncio.to_thread(
+            save_analysis, graph, report, review_model, content_hash, embedding_provider, embedding_model,
+        )
+    except Exception as e:
+        logging.error(f"Analysis failed for {file_name}: {e}")
+        return {"status": "failed", "error": str(e)}
+    return {
+        "status": "ok" if not report.errors else "partial",
+        "findings": saved["saved"],
+        "dismissed": saved["dismissed"],
+        "riskLevel": report.summary.risk_level if report.summary else "none",
+        "reviewedUnits": len(report.reviewed),
+        "droppedFindings": len(report.dropped),
+        "errors": report.errors,
+        "reviewModel": review_model,
+        "reviewMetrics": report.llm_metrics,
+    }
+
+
+def _unit_key(unit: ReviewUnit):
+    return (unit.file, unit.symbol)
+
+
+def _fetch_contexts(graph, units) -> dict:
+    contexts = {}
+    for unit in units:
+        if unit.symbol is None:
+            continue  # module-level code has no call-graph neighbours
+        try:
+            contexts[_unit_key(unit)] = fetch_symbol_context(graph, f"{unit.file}::{unit.symbol}", unit.decorated)
+        except Exception as e:
+            logging.warning(f"No graph context for {unit.file}::{unit.symbol}: {e}")
+    return contexts
 
 
 async def _finalize(

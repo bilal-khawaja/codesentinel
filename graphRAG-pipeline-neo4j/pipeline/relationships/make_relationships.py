@@ -174,10 +174,15 @@ def create_relation_between_chunks(graph, file_name: str, chunks: List[Document]
 def create_chunk_vector_index(graph, embedding_provider, embedding_model):
     start_time = time.time()
     try:
-        vector_index_query = "SHOW INDEXES YIELD name, type, labelsOrTypes, properties WHERE name = 'vector' AND type = 'VECTOR' AND 'Chunk' IN labelsOrTypes AND 'embedding' IN properties RETURN name"
+        vector_index_query = "SHOW INDEXES YIELD name, type, labelsOrTypes, properties, options WHERE name = 'vector' AND type = 'VECTOR' AND 'Chunk' IN labelsOrTypes AND 'embedding' IN properties RETURN name, options.indexConfig['vector.dimensions'] AS dim"
         vector_index = execute_graph_query(graph, vector_index_query)
+        _EMBEDDING_FUNCTION, EMBEDDING_DIMENSION = load_embedding_model(embedding_provider, embedding_model)
+        if vector_index and vector_index[0].get("dim") != EMBEDDING_DIMENSION:
+            # index left over from a different embedding model (e.g. 1536-dim OpenAI): recreate at the new size
+            logging.warning(f"Chunk vector index has {vector_index[0].get('dim')} dims, need {EMBEDDING_DIMENSION}; recreating")
+            execute_graph_query(graph, "DROP INDEX vector IF EXISTS")
+            vector_index = []
         if not vector_index:
-            _EMBEDDING_FUNCTION, EMBEDDING_DIMENSION = load_embedding_model(embedding_provider, embedding_model)
             query = CREATE_VECTOR_INDEX_QUERY.format(
                 index_name="vector",
                 node_label="Chunk",

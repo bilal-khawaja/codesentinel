@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from neo4j import GraphDatabase
 from neo4j.exceptions import TransientError
-from openai import OpenAI
+# [OPENAI-DISABLED] from openai import OpenAI
 
 
 @dataclass
@@ -306,44 +306,90 @@ def get_value_from_env(key_name: str, default_value: Any = None, data_type: type
 
 # --- Embedding model loading ---
 
-class OpenAIEmbeddingFunction:
-    """Small drop-in replacement for langchain_openai.OpenAIEmbeddings exposing
-    just the .embed_query(text) method downstream code relies on, backed
-    directly by the `openai` SDK."""
+# [OPENAI-DISABLED] class OpenAIEmbeddingFunction:
+# [OPENAI-DISABLED]     """Small drop-in replacement for langchain_openai.OpenAIEmbeddings exposing
+# [OPENAI-DISABLED]     just the .embed_query(text) method downstream code relies on, backed
+# [OPENAI-DISABLED]     directly by the `openai` SDK."""
+# [OPENAI-DISABLED]
+# [OPENAI-DISABLED]     def __init__(self, model: str, api_key: Optional[str] = None):
+# [OPENAI-DISABLED]         self.model = model
+# [OPENAI-DISABLED]         api_key = api_key or get_value_from_env("OPENAI_API_KEY")
+# [OPENAI-DISABLED]         if not api_key:
+# [OPENAI-DISABLED]             raise ValueError(
+# [OPENAI-DISABLED]                 "OPENAI_API_KEY is not set. Add it to pipeline/.env (or export it) "
+# [OPENAI-DISABLED]                 "so embeddings can be generated."
+# [OPENAI-DISABLED]             )
+# [OPENAI-DISABLED]         self._client = OpenAI(api_key=api_key)
+# [OPENAI-DISABLED]
+# [OPENAI-DISABLED]     def embed_query(self, text: str) -> List[float]:
+# [OPENAI-DISABLED]         text = text.replace("\n", " ") if text else " "
+# [OPENAI-DISABLED]         response = self._client.embeddings.create(model=self.model, input=[text])
+# [OPENAI-DISABLED]         return response.data[0].embedding
+# [OPENAI-DISABLED]
+# [OPENAI-DISABLED]
+# [OPENAI-DISABLED] def load_embedding_model(embedding_provider: str, embedding_model_name: str):
+# [OPENAI-DISABLED]     model_dimensions = {
+# [OPENAI-DISABLED]         "openai": {
+# [OPENAI-DISABLED]             "text-embedding-3-large": 3072,
+# [OPENAI-DISABLED]             "text-embedding-3-small": 1536,
+# [OPENAI-DISABLED]             "text-embedding-ada-002": 1536,
+# [OPENAI-DISABLED]         },
+# [OPENAI-DISABLED]     }
+# [OPENAI-DISABLED]
+# [OPENAI-DISABLED]     provider = embedding_provider.lower()
+# [OPENAI-DISABLED]     model = embedding_model_name
+# [OPENAI-DISABLED]
+# [OPENAI-DISABLED]     if provider != "openai" or model not in model_dimensions["openai"]:
+# [OPENAI-DISABLED]         raise ValueError(f"Unsupported provider/model: {provider}/{model}")
+# [OPENAI-DISABLED]
+# [OPENAI-DISABLED]     dimension = model_dimensions[provider][model]
+# [OPENAI-DISABLED]     embeddings = OpenAIEmbeddingFunction(model=model)
+# [OPENAI-DISABLED]
+# [OPENAI-DISABLED]     logging.info(f"Embedding: Using {provider} - {model}, Dimension: {dimension}")
+# [OPENAI-DISABLED]     return embeddings, dimension
 
-    def __init__(self, model: str, api_key: Optional[str] = None):
+
+class LocalEmbeddingFunction:
+    """Local ONNX embeddings via fastembed, exposing the .embed_query(text) the pipeline relies on.
+    No API key or network call after the first model download (cached on disk)."""
+
+    _models: dict = {}
+
+    def __init__(self, model: str):
         self.model = model
-        api_key = api_key or get_value_from_env("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError(
-                "OPENAI_API_KEY is not set. Add it to pipeline/.env (or export it) "
-                "so embeddings can be generated."
+        if model not in self._models:
+            from fastembed import TextEmbedding  # lazy: keeps import-time light
+
+            self._models[model] = TextEmbedding(
+                model_name=model, cache_dir=get_value_from_env("FASTEMBED_CACHE_DIR") or None
             )
-        self._client = OpenAI(api_key=api_key)
+        self._embedder = self._models[model]
 
     def embed_query(self, text: str) -> List[float]:
         text = text.replace("\n", " ") if text else " "
-        response = self._client.embeddings.create(model=self.model, input=[text])
-        return response.data[0].embedding
+        return next(iter(self._embedder.embed([text]))).tolist()
+
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        texts = [t.replace("\n", " ") if t else " " for t in texts]
+        return [v.tolist() for v in self._embedder.embed(texts)]
 
 
 def load_embedding_model(embedding_provider: str, embedding_model_name: str):
     model_dimensions = {
-        "openai": {
-            "text-embedding-3-large": 3072,
-            "text-embedding-3-small": 1536,
-            "text-embedding-ada-002": 1536,
+        "local": {
+            "BAAI/bge-small-en-v1.5": 384,
         },
     }
+    # [OPENAI-DISABLED] model_dimensions = {"openai": {"text-embedding-3-large": 3072, "text-embedding-3-small": 1536, "text-embedding-ada-002": 1536}}
 
     provider = embedding_provider.lower()
     model = embedding_model_name
 
-    if provider != "openai" or model not in model_dimensions["openai"]:
+    if provider not in model_dimensions or model not in model_dimensions[provider]:
         raise ValueError(f"Unsupported provider/model: {provider}/{model}")
 
     dimension = model_dimensions[provider][model]
-    embeddings = OpenAIEmbeddingFunction(model=model)
+    embeddings = LocalEmbeddingFunction(model=model)
 
     logging.info(f"Embedding: Using {provider} - {model}, Dimension: {dimension}")
     return embeddings, dimension

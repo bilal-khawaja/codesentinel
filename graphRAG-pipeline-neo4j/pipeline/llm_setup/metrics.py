@@ -2,7 +2,8 @@
 
 Every LLMHandle owns one LLMMetrics and records each call into it, so after any piece of work:
 
-    llm, _, _ = get_llm("openai_gpt_4_1_mini")
+    # [OPENAI-DISABLED] llm, _, _ = get_llm("openai_gpt_4_1_mini")
+    llm, _, _ = get_llm("gemini_flash_lite")
     ... run work ...
     print(llm.metrics.report())      # readable text
     llm.metrics.summary()            # dict, for logs or API responses

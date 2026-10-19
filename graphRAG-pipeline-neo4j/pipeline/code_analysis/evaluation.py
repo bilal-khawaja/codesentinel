@@ -23,6 +23,7 @@ from ..code_parsing.language_spec import PYTHON
 from .analyzer import analyze_file
 from .models import SEVERITY_ORDER, Finding
 from .rules import scan_source
+from ..shared.constants import DEFAULT_LLM_MODEL
 
 # first match wins; matched against category, title and cwe of a finding
 FAMILIES = [
@@ -225,7 +226,8 @@ def main() -> None:
     from ..llm_setup.llm import get_llm
 
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--model", default="openai_gpt_4_1_mini")
+    # [OPENAI-DISABLED] parser.add_argument("--model", default="openai_gpt_4_1_mini")
+    parser.add_argument("--model", default=DEFAULT_LLM_MODEL)
     parser.add_argument("--runs", type=int, default=1)
     parser.add_argument("--rules-only", action="store_true", help="score the rule scan without any LLM call")
     parser.add_argument("--risky-only", action="store_true", help="LLM reviews only flagged or risky units (review_all=False)")

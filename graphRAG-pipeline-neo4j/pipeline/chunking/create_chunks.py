@@ -9,6 +9,10 @@ from ..document_sources.document import Document
 logging.basicConfig(format="%(asctime)s - %(message)s", level="INFO")
 
 
+# tiktoken encoding used to size chunks (cl100k_base); independent of the embedding model.
+CHUNK_TOKENIZER_MODEL = "text-embedding-3-small"
+
+
 class _TokenTextSplitter:
     """Minimal replacement for langchain_text_splitters.TokenTextSplitter:
     splits page_content into fixed-size, overlapping token windows using the
@@ -68,7 +72,8 @@ class CreateChunksofDocument:
         text_splitter = _TokenTextSplitter(
             chunk_size=token_chunk_size,
             chunk_overlap=chunk_overlap,
-            model_name=embedding_model,
+            # [OPENAI-DISABLED] model_name=embedding_model,
+            model_name=CHUNK_TOKENIZER_MODEL,  # tiktoken name for chunk sizing only; not an API call
         )
         max_token_chunk_size = get_value_from_env("MAX_TOKEN_CHUNK_SIZE", 10000, "int")
         chunk_to_be_created = int(max_token_chunk_size / token_chunk_size)

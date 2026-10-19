@@ -4,7 +4,7 @@ from neo4j import GraphDatabase
 from pydantic import BaseModel
 
 from ..graphdb.db import load_embedding_model, execute_graph_query, get_value_from_env
-from ..shared.constants import GRAPH_CLEANUP_PROMPT
+from ..shared.constants import GRAPH_CLEANUP_PROMPT, DEFAULT_LLM_MODEL
 from ..llm_setup.llm import get_llm
 from ..graphdb.graphDB_dataAccess import graphDBdataAccess
 
@@ -162,7 +162,8 @@ def graph_schema_consolidation(graph):
     graphDb_data_Access = graphDBdataAccess(graph)
     node_labels, relation_labels = graphDb_data_Access.get_nodelabels_relationships()
 
-    graph_cleanup_model = get_value_from_env("GRAPH_CLEANUP_MODEL", 'openai_gpt_5.4_mini')
+    # [OPENAI-DISABLED] graph_cleanup_model = get_value_from_env("GRAPH_CLEANUP_MODEL", 'openai_gpt_4_1_mini')
+    graph_cleanup_model = get_value_from_env("GRAPH_CLEANUP_MODEL", DEFAULT_LLM_MODEL)
     llm, _, _ = get_llm(graph_cleanup_model)
 
     nodes_relations_input = {'nodes': node_labels, 'relationships': relation_labels}

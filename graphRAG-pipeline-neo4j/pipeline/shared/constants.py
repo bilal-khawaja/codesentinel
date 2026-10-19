@@ -1,5 +1,12 @@
 GRAPH_CHUNK_LIMIT = 50 
 
+# Default LLM key (see LLM_MODEL_CONFIG_* in .env): small, high free-quota Gemini model for bulk work.
+DEFAULT_LLM_MODEL = "gemini_flash_lite"
+
+# Local embeddings (fastembed / ONNX, no API key). 384 dims: vector indexes must be created with this size.
+DEFAULT_EMBEDDING_PROVIDER = "local"
+DEFAULT_EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
+
 #query 
 GRAPH_QUERY = """
 MATCH docs = (d:Document) 

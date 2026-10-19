@@ -13,9 +13,12 @@ from deepeval.metrics import GEval
 from deepeval.test_case import LLMTestCase, LLMTestCaseParams
 
 from ..graphdb.db import get_value_from_env
+from ..shared.constants import DEFAULT_LLM_MODEL
 from ..llm_setup.llm import get_llm
+from .llm_judge import LLMJudge
 
-MODEL = get_value_from_env("DEFAULT_TEST_MODEL", "openai_gpt_4_1_mini")
+# [OPENAI-DISABLED] MODEL = get_value_from_env("DEFAULT_TEST_MODEL", "openai_gpt_4_1_mini")
+MODEL = get_value_from_env("DEFAULT_TEST_MODEL", DEFAULT_LLM_MODEL)
 
 
 def eval_who_calls_helper():
@@ -30,6 +33,8 @@ def eval_who_calls_helper():
     )
     metric = GEval(
         name="Callers correct",
+        # [OPENAI-DISABLED] model="gpt-4.1-mini",
+        model=LLMJudge(MODEL),
         criteria="The answer names exactly Shape.area and Square.area as the callers of helper.",
         evaluation_params=[LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.EXPECTED_OUTPUT],
         threshold=0.7,

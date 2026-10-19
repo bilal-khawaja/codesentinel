@@ -2,6 +2,7 @@ import hashlib
 from pathlib import Path
 import logging
 import asyncio
+from ..shared.constants import DEFAULT_EMBEDDING_PROVIDER, DEFAULT_EMBEDDING_MODEL
 from ..graphdb.db import (
     Neo4jCredentials,
     create_graph_database_connection,
@@ -73,8 +74,10 @@ async def ingest(
     chunks_to_combine: int = 5,
     token_chunk_size: int = 500,
     chunk_overlap: int = 20,
-    embedding_provider: str = "openai",
-    embedding_model: str = "text-embedding-3-small",
+    # [OPENAI-DISABLED] embedding_provider: str = "openai",
+    embedding_provider: str = DEFAULT_EMBEDDING_PROVIDER,
+    # [OPENAI-DISABLED] embedding_model: str = "text-embedding-3-small",
+    embedding_model: str = DEFAULT_EMBEDDING_MODEL,
     rebuild_communities: bool = True,
     summarize_code: bool = True,
     root_dir: str = None,
@@ -244,15 +247,18 @@ async def _analyze_if_stale(
     source_path, file_name, spec, content_hash, review_model, review_all,
     credentials, embedding_provider, embedding_model,
 ) -> dict:
-    """Unchanged file: analyze it only if it was never analyzed (or analyzed at other content)."""
+    """Unchanged file: analyze it only if it was never analyzed, or was analyzed at other content or by another
+    review model (findings from an old model must not outlive a switch to a new one)."""
     try:
         graph = create_graph_database_connection(credentials)
         rows = await asyncio.to_thread(
-            graph.query, "MATCH (m:__Entity__ {id: $id, type: 'Module'}) RETURN m.analyzed_hash AS h", {"id": file_name}
+            graph.query,
+            "MATCH (m:__Entity__ {id: $id, type: 'Module'}) RETURN m.analyzed_hash AS h, m.analysis_model AS model",
+            {"id": file_name},
         )
         if not rows:
             return {"status": "skipped", "reason": "no_module_node"}
-        if rows[0]["h"] == content_hash:
+        if rows[0]["h"] == content_hash and rows[0]["model"] == review_model:
             return {"status": "skipped", "reason": "already_analyzed"}
         with open(source_path, encoding="utf-8", errors="replace") as f:
             source = f.read()
@@ -381,8 +387,10 @@ async def ingest_from_url(
     chunks_to_combine: int = 5,
     token_chunk_size: int = 500,
     chunk_overlap: int = 20,
-    embedding_provider: str = "openai",
-    embedding_model: str = "text-embedding-3-small",
+    # [OPENAI-DISABLED] embedding_provider: str = "openai",
+    embedding_provider: str = DEFAULT_EMBEDDING_PROVIDER,
+    # [OPENAI-DISABLED] embedding_model: str = "text-embedding-3-small",
+    embedding_model: str = DEFAULT_EMBEDDING_MODEL,
     rebuild_communities: bool = True,
 ) -> dict:
     """Load a URL, extract a graph via LLM, and write it into Neo4j.
@@ -424,8 +432,10 @@ async def ingest_from_wikipedia(
     chunks_to_combine: int = 5,
     token_chunk_size: int = 500,
     chunk_overlap: int = 20,
-    embedding_provider: str = "openai",
-    embedding_model: str = "text-embedding-3-small",
+    # [OPENAI-DISABLED] embedding_provider: str = "openai",
+    embedding_provider: str = DEFAULT_EMBEDDING_PROVIDER,
+    # [OPENAI-DISABLED] embedding_model: str = "text-embedding-3-small",
+    embedding_model: str = DEFAULT_EMBEDDING_MODEL,
     rebuild_communities: bool = True,
 ) -> dict:
     """Load a Wikipedia article, extract a graph via LLM, and write it into Neo4j.

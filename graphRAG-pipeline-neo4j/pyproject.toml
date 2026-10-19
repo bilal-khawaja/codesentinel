@@ -8,7 +8,7 @@ dependencies = [
     "neo4j>=5.0",
     "graphdatascience==1.21",
     "pydantic>=2.7",
-    "pydantic-ai-slim[openai]>=0.4",
+    "pydantic-ai-slim[openai,google]>=0.4",
     "openai>=1.50",
     "httpx2",
     "tiktoken>=0.7",
@@ -22,6 +22,7 @@ dependencies = [
     "pandas",
     "tree-sitter",
     "tree-sitter-python",
+    "fastembed>=0.9.0",
 ]
 
 [dependency-groups]

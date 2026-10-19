@@ -9,9 +9,13 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from pipeline.retrievals.retrieve import retrieve, get_neo4j_credentials
     from pipeline.graphdb.db import get_value_from_env
+    from pipeline.shared.constants import DEFAULT_LLM_MODEL
+    from pipeline.model_evaluation.llm_judge import LLMJudge
 else:
     from ..retrievals.retrieve import retrieve, get_neo4j_credentials
     from ..graphdb.db import get_value_from_env
+    from ..shared.constants import DEFAULT_LLM_MODEL
+    from .llm_judge import LLMJudge
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 ENV_FILE = PACKAGE_ROOT / ".env"
@@ -22,7 +26,8 @@ load_dotenv(dotenv_path=ENV_FILE, override=False)
 if not all(get_value_from_env(key) for key in ("NEO4J_URI", "NEO4J_USERNAME", "NEO4J_PASSWORD")):
     raise RuntimeError(f"Required Neo4j settings were not loaded from {ENV_FILE}")
 
-MODEL = "openai_gpt_4_1_mini"
+# [OPENAI-DISABLED] MODEL = "openai_gpt_4_1_mini"
+MODEL = DEFAULT_LLM_MODEL
 
 def test_hallucinations():
 
@@ -38,9 +43,12 @@ def test_hallucinations():
         query=question,
         mode="graph_vector",
         credentials=credentials,
-        embedding_provider="openai",
-        embedding_model="text-embedding-3-small",
-        model="openai_gpt_4_1_mini",
+        # [OPENAI-DISABLED] embedding_provider="openai",
+        embedding_provider="local",
+        # [OPENAI-DISABLED] embedding_model="text-embedding-3-small",
+        embedding_model="BAAI/bge-small-en-v1.5",
+        # [OPENAI-DISABLED] model="openai_gpt_4_1_mini",
+        model=DEFAULT_LLM_MODEL,
     )
 
     retrieval_context = result["retrieval_context"]
@@ -52,6 +60,8 @@ def test_hallucinations():
     )
 
     metric = HallucinationMetric(
+        # [OPENAI-DISABLED] model="gpt-4.1-mini",
+        model=LLMJudge(MODEL),
         threshold=0.8,
         include_reason=True,
     )

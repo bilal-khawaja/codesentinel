@@ -3,7 +3,7 @@ from graphdatascience import GraphDataScience
 
 from ..llm_setup.llm import get_llm
 from ..graphdb.db import get_value_from_env, load_embedding_model
-from ..shared.constants import CODE_COMMUNITY_SYSTEM_TEMPLATE, CODE_COMMUNITY_TEMPLATE
+from ..shared.constants import CODE_COMMUNITY_SYSTEM_TEMPLATE, CODE_COMMUNITY_TEMPLATE, DEFAULT_LLM_MODEL
 
 COMMUNITY_PROJECTION_NAME = "communities"
 NODE_PROJECTION = "!Chunk&!Document&!__Community__&!Finding"
@@ -11,7 +11,8 @@ NODE_PROJECTION_ENTITY = "__Entity__"
 MAX_WORKERS = 3
 MAX_COMMUNITY_LEVELS = 3
 MIN_COMMUNITY_SIZE = 1
-COMMUNITY_CREATION_DEFAULT_MODEL = "openai_gpt_5.4_mini"
+# [OPENAI-DISABLED] COMMUNITY_CREATION_DEFAULT_MODEL = "openai_gpt_4_1_mini"
+COMMUNITY_CREATION_DEFAULT_MODEL = DEFAULT_LLM_MODEL
 MIN_ENTITIES_FOR_COMMUNITY_DETECTION = 5
 
 

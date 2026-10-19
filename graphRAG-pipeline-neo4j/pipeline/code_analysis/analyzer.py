@@ -46,7 +46,7 @@ async def analyze_file(
     file_name: str,
     info: CodeInfo,
     get_context: Optional[ContextProvider] = None,
-    max_concurrency: int = 5,
+    max_concurrency: int = 2,  # was 5; lowered for Groq free-tier TPM
     review_all: bool = True,
 ) -> AnalysisReport:
     """Rules first (free and exact), then the LLM reviews the code, confirming or dismissing

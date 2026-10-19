@@ -8,6 +8,7 @@ import re
 from typing import List, Optional
 
 from ..graphdb.db import create_graph_database_connection, load_embedding_model
+from ..shared.constants import DEFAULT_EMBEDDING_PROVIDER, DEFAULT_EMBEDDING_MODEL
 from .retrieve import get_neo4j_credentials
 
 SEVERITIES = ["critical", "high", "medium", "low", "info"]
@@ -147,7 +148,8 @@ def get_finding(graph, finding_id: str) -> str:
 
 
 def search_findings(graph, query: str, limit: int = 10, include_dismissed: bool = False,
-                    embedding_provider: str = "openai", embedding_model: str = "text-embedding-3-small") -> str:
+                    # [OPENAI-DISABLED] embedding_provider: str = "openai", embedding_model: str = "text-embedding-3-small") -> str:
+                    embedding_provider: str = DEFAULT_EMBEDDING_PROVIDER, embedding_model: str = DEFAULT_EMBEDDING_MODEL) -> str:
     limit = _limit(limit)
     embeddings, _ = load_embedding_model(embedding_provider, embedding_model)
     vector = embeddings.embed_query(query)

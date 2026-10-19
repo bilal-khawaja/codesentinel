@@ -4,10 +4,12 @@ from ..graphdb.db import Neo4jCredentials, create_graph_database_connection, loa
 from ..llm_setup.llm import get_llm
 from ..shared.constants import (
     CHAT_SYSTEM_TEMPLATE, CHAT_MODE_CONFIG_MAP, CHAT_DEFAULT_MODE, CHAT_SEARCH_KWARG_SCORE_THRESHOLD,
+    DEFAULT_EMBEDDING_PROVIDER, DEFAULT_EMBEDDING_MODEL, DEFAULT_LLM_MODEL,
 )
 from dataclasses import asdict
 
-MODEL = get_value_from_env('DEFAULT_TEST_MODEL', 'openai_gpt_4_1_mini')
+# [OPENAI-DISABLED] MODEL = get_value_from_env('DEFAULT_TEST_MODEL', 'openai_gpt_4_1_mini')
+MODEL = get_value_from_env('DEFAULT_TEST_MODEL', DEFAULT_LLM_MODEL)
 
 def get_chat_mode_settings(mode, settings_map=CHAT_MODE_CONFIG_MAP):
     settings = settings_map.get(mode)
@@ -122,8 +124,10 @@ def data_retriever(
     rows = get_neo4j_retriever_rows(
         graph, document_names, 
         chat_mode_settings,
-        embedding_provider="openai",
-        embedding_model="text-embedding-3-small", 
+        # [OPENAI-DISABLED] embedding_provider="openai",
+        embedding_provider=DEFAULT_EMBEDDING_PROVIDER,
+        # [OPENAI-DISABLED] embedding_model="text-embedding-3-small", 
+        embedding_model=DEFAULT_EMBEDDING_MODEL, 
         community_ids=community_ids,
         query=query)
 
@@ -137,8 +141,10 @@ def community_retriever(
     graph = create_graph_database_connection(creds)
 
     embedding_function, _ = load_embedding_model(
-        "openai",
-        "text-embedding-3-small",
+        # [OPENAI-DISABLED] "openai",
+        DEFAULT_EMBEDDING_PROVIDER,
+        # [OPENAI-DISABLED] "text-embedding-3-small",
+        DEFAULT_EMBEDDING_MODEL,
     )
 
     query_vector = embedding_function.embed_query(query)

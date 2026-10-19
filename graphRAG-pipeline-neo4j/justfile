@@ -5,37 +5,39 @@ run:
     uv sync
     docker compose -f pipeline/docker-compose.yml up -d
 
-# --- Tests (offline: no Neo4j, no API key) ---
+# --- Tests ---
+# Offline (no Neo4j, no API key): test-offline, test-embeddings, test-llm, test-judge.
+# Live (calls the Gemini model, counts against its token limits): test-review.
+# Extra pytest args work on every recipe, e.g. `just test-llm -k backoff`.
 
-# All code tests. Pass extra pytest args after the recipe, e.g. `just test-code -x`.
-test-code *args:
-    uv run pytest pipeline/test_pipeline/code {{args}}
+# All offline tests (embeddings, LLM setup, judge). Does not call the LLM.
+test-offline *args:
+    uv run pytest pipeline/test_pipeline/test_embeddings.py pipeline/test_pipeline/test_llm_setup.py pipeline/test_pipeline/test_llm_judge.py pipeline/test_pipeline/code/modules {{args}}
 
-# One recipe per test file. Extra pytest args work too, e.g. `just test-rules -k secret`.
+# Local fastembed embedder: 384 dimensions, rejected providers, ranking. First run downloads the model (about 70 MB).
+test-embeddings *args:
+    uv run pytest pipeline/test_pipeline/test_embeddings.py {{args}}
 
-# Parsing, chunking, edges, cross-file resolution.
-test-parsing *args:
-    uv run pytest pipeline/test_pipeline/code/test_code_parsing.py {{args}}
+# get_llm config parsing, 429 backoff, native structured output.
+test-llm *args:
+    uv run pytest pipeline/test_pipeline/test_llm_setup.py {{args}}
 
-# The 18 rule checks: injection, secrets, syntax errors, and so on.
-test-rules *args:
-    uv run pytest pipeline/test_pipeline/code/test_code_analysis_rules.py {{args}}
+# LLMJudge: the deepeval judge that routes through the pipeline's LLM instead of OpenAI.
+test-judge *args:
+    uv run pytest pipeline/test_pipeline/test_llm_judge.py {{args}}
 
-# LLM review on samples/ (vulnerable_app.py, clean_app.py) with the real model; -s prints the LLM metrics. About $0.03, skipped without a model.
+# Code modules (parsing, chunking, rules, review helpers, metrics). Offline, no Neo4j.
+test-modules *args:
+    uv run pytest pipeline/test_pipeline/code/modules {{args}}
+
+# LLM review on samples/ (vulnerable_app.py, clean_app.py) with the real LLM; -s prints the LLM metrics. Skipped without a model configured.
 test-review *args:
     uv run pytest pipeline/test_pipeline/code/test_code_review.py -s {{args}}
 
-# Saving findings to Neo4j (recording fake graph) and keeping them out of other queries.
-test-store *args:
-    uv run pytest pipeline/test_pipeline/code/test_findings_store.py {{args}}
-
-# LLM time, tokens and cost tracking.
-test-metrics *args:
-    uv run pytest pipeline/test_pipeline/code/test_llm_metrics.py {{args}}
-
-# Any test file by name, e.g. `just test-file test_code_review.py -k dismissed`.
+# Any test file by path under pipeline/test_pipeline, e.g. `just test-file code/test_code_review.py -k dismissed`.
 test-file file *args:
-    uv run pytest pipeline/test_pipeline/code/{{file}} {{args}}
+    uv run pytest pipeline/test_pipeline/{{file}} {{args}}
+
 # Accuracy of the vulnerability/bug detector on two sample files, real LLM (costs ~$0.01 per run).
 # Extra args: --runs 3 (spread over runs), --rules-only (no LLM), --risky-only.
 eval-code *args:

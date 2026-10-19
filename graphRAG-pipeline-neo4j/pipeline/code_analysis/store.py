@@ -16,6 +16,7 @@ import uuid
 from typing import List, Optional
 
 from ..graphdb.db import execute_graph_query, get_value_from_env, load_embedding_model
+from ..shared.constants import DEFAULT_EMBEDDING_PROVIDER, DEFAULT_EMBEDDING_MODEL
 from .analyzer import AnalysisReport
 from .models import Finding
 
@@ -67,8 +68,10 @@ def save_analysis(
     report: AnalysisReport,
     model: str,
     content_hash: str,
-    embedding_provider: str = "openai",
-    embedding_model: str = "text-embedding-3-small",
+    # [OPENAI-DISABLED] embedding_provider: str = "openai",
+    embedding_provider: str = DEFAULT_EMBEDDING_PROVIDER,
+    # [OPENAI-DISABLED] embedding_model: str = "text-embedding-3-small",
+    embedding_model: str = DEFAULT_EMBEDDING_MODEL,
     run_id: Optional[str] = None,
 ) -> dict:
     """Replace the file's findings with this report. Returns what was written."""

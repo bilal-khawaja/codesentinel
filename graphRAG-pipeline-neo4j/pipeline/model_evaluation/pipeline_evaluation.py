@@ -4,6 +4,8 @@ from deepeval.test_case import LLMTestCase, LLMTestCaseParams
 from dotenv import load_dotenv
 from ..retrievals.retrieve import retrieve,get_neo4j_credentials
 from ..graphdb.db import get_value_from_env
+from ..shared.constants import DEFAULT_LLM_MODEL
+from .llm_judge import LLMJudge
 from pathlib import Path    
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
@@ -15,7 +17,8 @@ load_dotenv(dotenv_path=ENV_FILE, override=False)
 if not all(get_value_from_env(key) for key in ("NEO4J_URI", "NEO4J_USERNAME", "NEO4J_PASSWORD")):
     raise RuntimeError(f"Required Neo4j settings were not loaded from {ENV_FILE}")
 
-MODEL = get_value_from_env('DEFAULT_TEST_MODEL', 'openai_gpt_4_1_mini')
+# [OPENAI-DISABLED] MODEL = get_value_from_env('DEFAULT_TEST_MODEL', 'openai_gpt_4_1_mini')
+MODEL = get_value_from_env('DEFAULT_TEST_MODEL', DEFAULT_LLM_MODEL)
 TEST_DATA_DIR = PACKAGE_ROOT / "test_data"
 SAMPLE_FILE = TEST_DATA_DIR / "Apple stock during pandemic.pdf"
 
@@ -36,8 +39,10 @@ def model_eval():
         query=question,
         mode="graph_vector",
         credentials=creds,
-        embedding_provider="openai",
-        embedding_model="text-embedding-3-small",
+        # [OPENAI-DISABLED] embedding_provider="openai",
+        embedding_provider="local",
+        # [OPENAI-DISABLED] embedding_model="text-embedding-3-small",
+        embedding_model="BAAI/bge-small-en-v1.5",
         model=MODEL,
     )
     print(f"Retrieve result: {result}")
@@ -78,6 +83,8 @@ def model_eval():
 
     answer_correctness = GEval(
     name="Answer Correctness",
+    # [OPENAI-DISABLED] model="gpt-4.1-mini",
+    model=LLMJudge(MODEL),
     # criteria is the instructions given to the LLM evaluator to determine whether the actual answer is correct and agrees with the expected answer.
     criteria=(
         "Determine whether the actual answer correctly answers the input "

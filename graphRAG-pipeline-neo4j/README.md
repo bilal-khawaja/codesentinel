@@ -58,7 +58,7 @@ from pipeline.code_parsing.language_spec import PYTHON
 from pipeline.code_analysis.analyzer import analyze_file
 
 source = open("app.py", encoding="utf-8").read()
-llm, _, _ = get_llm("openai_gpt_4_1_mini")
+llm, _, _ = get_llm("gemini_flash_lite")
 report = asyncio.run(analyze_file(llm, source, "app.py", extract(source, PYTHON)))
 
 for finding in report.findings:
@@ -143,7 +143,8 @@ A pydantic-ai query agent (`llm_setup/llm.py`, `create_query_agent`) exposes the
 - [uv](https://docs.astral.sh/uv/)
 - [just](https://github.com/casey/just) (optional, for the shortcut commands)
 - Docker (for a local Neo4j with APOC and Graph Data Science)
-- An OpenAI API key. Embeddings only support OpenAI (`text-embedding-3-small`, `text-embedding-3-large`, `text-embedding-ada-002`).
+- A [Google Gemini](https://aistudio.google.com/apikey) API key for the LLM (default model `gemini-3.5-flash-lite`). The free tier has per-minute and per-day request limits, so large ingests can hit HTTP 429; calls retry with backoff, but a daily limit needs a wait or a paid tier. Any OpenAI-compatible endpoint (e.g. Groq) still works with a 3-field config.
+- Embeddings run locally with [fastembed](https://github.com/qdrant/fastembed) (`BAAI/bge-small-en-v1.5`, 384 dimensions). No API key is needed; the model (about 70 MB) downloads on first use.
 
 ## Getting started
 
@@ -167,14 +168,17 @@ A pydantic-ai query agent (`llm_setup/llm.py`, `create_query_agent`) exposes the
    NEO4J_PASSWORD=testpassword
    NEO4J_DATABASE=neo4j
 
-   # One line per model you plan to use. The key is matched against the model= argument.
-   LLM_MODEL_CONFIG_OPENAI_GPT_4_1_MINI="gpt-4.1-mini,sk-..."
+   # One line per model you plan to use. The key is matched against the model= argument
+   # (uppercased, dots -> underscores). Value: model_name,endpoint,api_key
+   LLM_MODEL_CONFIG_GEMINI_FLASH_LITE="gemini-3.5-flash-lite,your-gemini-api-key"
 
-   # Used for embeddings.
-   OPENAI_API_KEY=sk-...
+   # Optional: where fastembed caches the embedding model (default: system temp folder).
+   # FASTEMBED_CACHE_DIR="C:/Users/you/.cache/fastembed"
    ```
 
-   Non-OpenAI models use `deployment_or_model,endpoint,api_key` as the value. See `example.env` for the optional tuning variables.
+   Any OpenAI-compatible endpoint works the same way. See `example.env` for the optional tuning variables.
+
+   Changing the embedding model changes the vector size (384 for bge-small). Existing vector indexes and stored embeddings must be rebuilt (re-ingest, or re-embed in place) when you switch.
 
 3. **Start Neo4j**
 
@@ -199,22 +203,22 @@ A pydantic-ai query agent (`llm_setup/llm.py`, `create_query_agent`) exposes the
 
    asyncio.run(ingest(
        source_path="/path/to/document.pdf",
-       model="openai_gpt_4_1_mini",
+       model="gemini_flash_lite",
        credentials=creds,
-       embedding_provider="openai",
-       embedding_model="text-embedding-3-small",
+       embedding_provider="local",
+       embedding_model="BAAI/bge-small-en-v1.5",
    ))
 
-   asyncio.run(ingest_from_url("https://example.com/article", model="openai_gpt_4_1_mini", credentials=creds))
-   asyncio.run(ingest_from_wikipedia("Amazon (company)", model="openai_gpt_4_1_mini", credentials=creds))
+   asyncio.run(ingest_from_url("https://example.com/article", model="gemini_flash_lite", credentials=creds))
+   asyncio.run(ingest_from_wikipedia("Amazon (company)", model="gemini_flash_lite", credentials=creds))
 
    answer = retrieve(
        query="Who founded Amazon?",
        mode="graph_vector",
        credentials=creds,
-       embedding_provider="openai",
-       embedding_model="text-embedding-3-small",
-       model="openai_gpt_4_1_mini",
+       embedding_provider="local",
+       embedding_model="BAAI/bge-small-en-v1.5",
+       model="gemini_flash_lite",
    )
    print(answer["answer"], answer["sources"])
    ```
@@ -228,7 +232,7 @@ A pydantic-ai query agent (`llm_setup/llm.py`, `create_query_agent`) exposes the
    ```python
    result = asyncio.run(ingest(
        source_path="/path/to/project/pkg/app.py",
-       model="openai_gpt_4_1_mini",
+       model="gemini_flash_lite",
        credentials=creds,
        root_dir="/path/to/project",
        rebuild_communities=False,

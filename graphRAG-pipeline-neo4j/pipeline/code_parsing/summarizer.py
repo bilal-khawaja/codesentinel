@@ -32,7 +32,7 @@ def build_summary_inputs(info: CodeInfo) -> Dict[str, str]:
     return inputs
 
 
-async def summarize_symbols(llm, inputs: Dict[str, str], max_concurrency: int = 5) -> Dict[str, str]:
+async def summarize_symbols(llm, inputs: Dict[str, str], max_concurrency: int = 2) -> Dict[str, str]:  # was 5; lowered for Groq free-tier TPM
     """One-sentence summaries for {id: code}. Batches several snippets per LLM call.
     Summaries are a bonus, so a failed batch is logged and skipped, not fatal."""
     items = list(inputs.items())

@@ -7,8 +7,11 @@ from typing import List, Optional
 import httpx2
 
 from pydantic import BaseModel, Field
-from pydantic_ai import Agent
+from pydantic_ai import Agent, NativeOutput  # NativeOutput: json_schema mode; tool-call output gets 400s from gpt-oss on Groq
+from pydantic_ai.exceptions import ModelHTTPError
+from pydantic_ai.models.google import GoogleModel
 from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.providers.google import GoogleProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 
 from ..graphdb.db import UniversalTokenUsageHandler, get_value_from_env, GraphDocument, GraphNode, GraphRelationship, GraphSource
@@ -75,6 +78,44 @@ are relevant to the software structure.
 
 
 
+_RATE_LIMIT_MAX_RETRIES = 5
+_RATE_LIMIT_BASE_DELAY = 2.0
+
+
+def _backoff_delay(err: ModelHTTPError, attempt: int) -> Optional[float]:
+    """Seconds to wait before retrying, or None if err is not a retryable 429 (free tiers throttle per minute)."""
+    if err.status_code != 429 or attempt >= _RATE_LIMIT_MAX_RETRIES:
+        return None
+    body = str(err.body).lower()
+    if "per day" in body or "perday" in body:  # daily quota (Groq TPD/RPD, Gemini PerDay): waiting seconds will not help
+        return None
+    return _RATE_LIMIT_BASE_DELAY * (2 ** attempt)
+
+
+def _run_sync_with_backoff(fn, *args):
+    for attempt in range(_RATE_LIMIT_MAX_RETRIES + 1):
+        try:
+            return fn(*args)
+        except ModelHTTPError as err:
+            delay = _backoff_delay(err, attempt)
+            if delay is None:
+                raise
+            logging.warning(f"Rate limited (429); retry {attempt + 1}/{_RATE_LIMIT_MAX_RETRIES} in {delay:.0f}s")
+            time.sleep(delay)
+
+
+async def _run_with_backoff(fn, *args):
+    for attempt in range(_RATE_LIMIT_MAX_RETRIES + 1):
+        try:
+            return await fn(*args)
+        except ModelHTTPError as err:
+            delay = _backoff_delay(err, attempt)
+            if delay is None:
+                raise
+            logging.warning(f"Rate limited (429); retry {attempt + 1}/{_RATE_LIMIT_MAX_RETRIES} in {delay:.0f}s")
+            await asyncio.sleep(delay)
+
+
 class LLMHandle:
     """Wraps a pydantic-ai model so callers can either get a plain text
     completion (chat/summary use-cases, replacing ChatOpenAI.invoke) or a
@@ -102,14 +143,14 @@ class LLMHandle:
     def complete(self, system_prompt: str, user_prompt: str, label: str = "complete") -> str:
         agent = Agent(self.model, output_type=str, system_prompt=system_prompt)
         started = time.perf_counter()
-        result = agent.run_sync(user_prompt)
+        result = _run_sync_with_backoff(agent.run_sync, user_prompt)
         self._record(result, label, started)
         return result.output
 
     async def acomplete(self, system_prompt: str, user_prompt: str, label: str = "complete") -> str:
         agent = Agent(self.model, output_type=str, system_prompt=system_prompt)
         started = time.perf_counter()
-        result = await agent.run(user_prompt)
+        result = await _run_with_backoff(agent.run, user_prompt)
         self._record(result, label, started)
         return result.output
 
@@ -117,7 +158,7 @@ class LLMHandle:
         """Run an agent from create_query_agent() and record its time, tokens and cost
         (all model calls and tool rounds of the run are counted together)."""
         started = time.perf_counter()
-        result = agent.run_sync(prompt)
+        result = _run_sync_with_backoff(agent.run_sync, prompt)
         self._record(result, label, started)
         return result
 
@@ -293,11 +334,18 @@ class LLMHandle:
 
         return agent
 
+    def structured(self, system_prompt: str, user_prompt: str, output_type, label: str = "structured"):
+        agent = Agent(self.model, output_type=NativeOutput(output_type), system_prompt=system_prompt, retries={"output": 3})
+        started = time.perf_counter()
+        result = _run_sync_with_backoff(agent.run_sync, user_prompt)
+        self._record(result, label, started)
+        return result.output
+
     async def astructured(self, system_prompt: str, user_prompt: str, output_type, label: str = "structured"):
         # long structured answers sometimes fail validation once: allow more output retries than the default 1
-        agent = Agent(self.model, output_type=output_type, system_prompt=system_prompt, retries={"output": 3})
+        agent = Agent(self.model, output_type=NativeOutput(output_type), system_prompt=system_prompt, retries={"output": 3})
         started = time.perf_counter()
-        result = await agent.run(user_prompt)
+        result = await _run_with_backoff(agent.run, user_prompt)
         self._record(result, label, started)
         return result.output
 
@@ -316,13 +364,19 @@ def get_llm(model: str):
     logging.info("Model: {}".format(env_key))
     callback_handler = UniversalTokenUsageHandler()
     try:
-        if "OPENAI" in model:
+        # [OPENAI-DISABLED] if "OPENAI" in model:
+        # [OPENAI-DISABLED]     model_name, api_key = env_value.split(",")
+        # [OPENAI-DISABLED]     http_client = httpx2.AsyncClient(timeout=120.0)
+        # [OPENAI-DISABLED]     provider = OpenAIProvider(api_key=api_key, http_client=http_client)
+        # [OPENAI-DISABLED]     pai_model = OpenAIChatModel(model_name, provider=provider)
+        # [OPENAI-DISABLED]
+        # [OPENAI-DISABLED] else:
+        if "GEMINI" in model:
+            # Google Gemini: value is "model_name,api_key"
             model_name, api_key = env_value.split(",")
-            http_client = httpx2.AsyncClient(timeout=120.0)
-            provider = OpenAIProvider(api_key=api_key, http_client=http_client)
-            pai_model = OpenAIChatModel(model_name, provider=provider)
-
+            pai_model = GoogleModel(model_name.strip(), provider=GoogleProvider(api_key=api_key.strip()))
         else:
+            # Any OpenAI-compatible endpoint (Groq, ...): value is "model_name,base_url,api_key"
             model_name, api_endpoint, api_key = env_value.split(",")
             http_client = httpx2.AsyncClient(timeout=120.0)
             provider = OpenAIProvider(base_url=api_endpoint, api_key=api_key, http_client=http_client)
@@ -439,7 +493,7 @@ def _extracted_graph_to_graph_document(extracted: ExtractedGraph, combined_chunk
 
 async def get_graph_document_list(
     llm: LLMHandle, combined_chunk_document_list, allowedNodes, allowedRelationship, 
-    callback_handler, additional_instructions=None, max_concurrency: int = 5
+    callback_handler, additional_instructions=None, max_concurrency: int = 2  # was 5; lowered for free-tier rate limits
 ):
     if additional_instructions:
         additional_instructions = sanitize_additional_instruction(additional_instructions)
